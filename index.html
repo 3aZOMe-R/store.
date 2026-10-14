@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MangwyScout: search every store at once</title>
+<style>
+  :root { --ink:#0f1b2d; --soft:#5a6678; --paper:#f6f8fb; --card:#fff; --line:#dbe2ea; --green:#0a7d4f; --link:#1450c8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e8eef6; --soft:#9aa7b8; --paper:#0e1622; --card:#16212f; --line:#2a3a4e; --green:#3ec585; --link:#7fb0ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif; color:var(--ink); background:var(--paper); }
+  :focus-visible { outline:3px solid var(--link); outline-offset:2px; }
+  .wrap { max-width:820px; margin:0 auto; padding:44px 20px 60px; }
+  h1 { font-size:40px; letter-spacing:-1px; margin:0 0 6px; }
+  h1 span { color:var(--green); }
+  .lead { margin:0 0 20px; color:var(--soft); max-width:60ch; }
+  form { display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=search] { flex:1; min-width:200px; font:inherit; padding:14px 16px; border:2px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
+  input[type=search]:focus { border-color:var(--link); outline:none; }
+  select { font:inherit; padding:0 12px; border:2px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); }
+  button { font:inherit; font-weight:700; padding:14px 22px; border:0; border-radius:8px; background:var(--green); color:#fff; cursor:pointer; }
+  button:hover { filter:brightness(1.1); }
+  #results { margin-top:26px; }
+  .hint { color:var(--soft); }
+  .tip { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:14px; color:var(--soft); }
+  .tip b { color:var(--ink); }
+  .stores { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .store { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .store h2 { margin:0; font-size:17px; }
+  .store a { text-decoration:none; font-weight:600; border-radius:8px; padding:9px 12px; text-align:center; }
+  .store a.main { background:var(--ink); color:var(--paper); }
+  .store a.cheap { border:1px solid var(--green); color:var(--green); }
+  .store a:hover { filter:brightness(1.15); }
+  .note { color:var(--soft); font-size:13px; margin-top:18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mangwy<span>Scout</span></h1>
+  <p class="lead">Type what you want to buy. Get a link to search it in each store, with the cheapest-first view where the store supports it.</p>
+
+  <form id="form" role="search">
+    <input id="q" type="search" placeholder="e.g. wireless headphones" autocomplete="off" required aria-label="What do you want to buy?">
+    <select id="region" aria-label="Country">
+      <option value="us">United States</option>
+      <option value="uk">United Kingdom</option>
+      <option value="eg">Egypt</option>
+    </select>
+    <button type="submit">Search stores</button>
+  </form>
+
+  <div id="results" aria-live="polite"><p class="hint">Your search will open in the store's own site, so you always see the real, current price there.</p></div>
+</div>
+
+<script>
+// Each store: how to build its search link, and (if the store supports it) a cheapest-first link.
+const STORES = {
+  us: [
+    { name: "Google Shopping", q: (s) => `https://www.google.com/search?tbm=shop&q=${s}`, cheap: (s) => `https://www.google.com/search?tbm=shop&q=${s}&tbs=p_ord:p`, all: true },
+    { name: "Amazon", q: (s) => `https://www.amazon.com/s?k=${s}`, cheap: (s) => `https://www.amazon.com/s?k=${s}&s=price-asc-rank` },
+    { name: "eBay", q: (s) => `https://www.ebay.com/sch/i.html?_nkw=${s}`, cheap: (s) => `https://www.ebay.com/sch/i.html?_nkw=${s}&_sop=15` },
+    { name: "Walmart", q: (s) => `https://www.walmart.com/search?q=${s}`, cheap: (s) => `https://www.walmart.com/search?q=${s}&sort=price_low` },
+    { name: "Best Buy", q: (s) => `https://www.bestbuy.com/site/searchpage.jsp?st=${s}` },
+    { name: "Target", q: (s) => `https://www.target.com/s?searchTerm=${s}` },
+    { name: "AliExpress", q: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}`, cheap: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}&SortType=price_asc` },
+  ],
+  uk: [
+    { name: "Google Shopping", q: (s) => `https://www.google.co.uk/search?tbm=shop&q=${s}`, cheap: (s) => `https://www.google.co.uk/search?tbm=shop&q=${s}&tbs=p_ord:p`, all: true },
+    { name: "Amazon UK", q: (s) => `https://www.amazon.co.uk/s?k=${s}`, cheap: (s) => `https://www.amazon.co.uk/s?k=${s}&s=price-asc-rank` },
+    { name: "eBay UK", q: (s) => `https://www.ebay.co.uk/sch/i.html?_nkw=${s}`, cheap: (s) => `https://www.ebay.co.uk/sch/i.html?_nkw=${s}&_sop=15` },
+    { name: "Argos", q: (s) => `https://www.argos.co.uk/search/${s}/` },
+    { name: "Currys", q: (s) => `https://www.currys.co.uk/search?q=${s}` },
+    { name: "AliExpress", q: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}`, cheap: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}&SortType=price_asc` },
+  ],
+  eg: [
+    { name: "Google Shopping", q: (s) => `https://www.google.com.eg/search?tbm=shop&q=${s}`, cheap: (s) => `https://www.google.com.eg/search?tbm=shop&q=${s}&tbs=p_ord:p`, all: true },
+    { name: "Amazon Egypt", q: (s) => `https://www.amazon.eg/s?k=${s}`, cheap: (s) => `https://www.amazon.eg/s?k=${s}&s=price-asc-rank` },
+    { name: "Noon", q: (s) => `https://www.noon.com/egypt-en/search/?q=${s}` },
+    { name: "Jumia Egypt", q: (s) => `https://www.jumia.com.eg/catalog/?q=${s}` },
+    { name: "eBay", q: (s) => `https://www.ebay.com/sch/i.html?_nkw=${s}`, cheap: (s) => `https://www.ebay.com/sch/i.html?_nkw=${s}&_sop=15` },
+    { name: "AliExpress", q: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}`, cheap: (s) => `https://www.aliexpress.com/wholesale?SearchText=${s}&SortType=price_asc` },
+  ],
+};
+
+const $q = document.getElementById("q");
+const $region = document.getElementById("region");
+const $out = document.getElementById("results");
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function show(q, region) {
+  const s = encodeURIComponent(q);
+  const stores = STORES[region] || STORES.us;
+  $out.innerHTML = `
+    <div class="tip"><b>Fastest way to compare:</b> start with Google Shopping. It lists the same item from many stores, and “Cheapest first” sorts by price.</div>
+    <div class="stores">${stores.map((st) => `
+      <div class="store">
+        <h2>${esc(st.name)}</h2>
+        <a class="main" href="${st.q(s)}" target="_blank" rel="noopener noreferrer">Search “${esc(q.length > 20 ? q.slice(0, 20) + "…" : q)}”</a>
+        ${st.cheap ? `<a class="cheap" href="${st.cheap(s)}" target="_blank" rel="noopener noreferrer">Cheapest first</a>` : ""}
+      </div>`).join("")}</div>
+    <p class="note">Each link opens that store's own page, so the price you see is the real one. Shipping and fees can change the final total, so check the cart before you buy. Store sorting options can change over time.</p>`;
+}
+
+function run() {
+  const q = $q.value.trim();
+  if (!q) return;
+  show(q, $region.value);
+  const u = new URL(location.href);
+  u.searchParams.set("q", q); u.searchParams.set("c", $region.value);
+  history.replaceState(null, "", u);
+}
+
+document.getElementById("form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+
+// support shared links like index.html?q=laptop&c=eg
+const params = new URLSearchParams(location.search);
+if (params.get("c") && STORES[params.get("c")]) $region.value = params.get("c");
+if (params.get("q")) { $q.value = params.get("q"); run(); }
+</script>
+</body>
+</html>
